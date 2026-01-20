@@ -8,7 +8,7 @@ metadata:
     tier: frontend
     version: v1
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: capx-frontend
@@ -21,8 +21,8 @@ spec:
     spec:
       containers:
       - name: capx-frontend
-        image: your-registry/capx-frontend:latest
-        imagePullPolicy: Always
+        image: capx-frontend:latest
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 80
           name: http
@@ -32,11 +32,11 @@ spec:
           value: "http://capx-backend:5000/api"
         resources:
           requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
             memory: "128Mi"
             cpu: "100m"
-          limits:
-            memory: "256Mi"
-            cpu: "200m"
         livenessProbe:
           httpGet:
             path: /health

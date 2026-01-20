@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import jwt
 from functools import wraps
 
-auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
+bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
 def get_models():
     """Get models from app context"""
@@ -39,7 +39,7 @@ def token_required(f):
     
     return decorated
 
-@auth_bp.route('/register', methods=['POST'])
+@bp.route('/register', methods=['POST'])
 def register():
     """Register new user"""
     try:
@@ -90,7 +90,7 @@ def register():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@auth_bp.route('/login', methods=['POST'])
+@bp.route('/login', methods=['POST'])
 def login():
     """User login"""
     try:
@@ -150,7 +150,7 @@ def login():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@auth_bp.route('/me', methods=['GET'])
+@bp.route('/me', methods=['GET'])
 @token_required
 def get_current_user(current_user):
     """Get current user profile"""
@@ -170,7 +170,7 @@ def get_current_user(current_user):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@auth_bp.route('/logout', methods=['POST'])
+@bp.route('/logout', methods=['POST'])
 @token_required
 def logout(current_user):
     """User logout"""

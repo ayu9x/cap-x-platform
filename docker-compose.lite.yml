@@ -1,0 +1,114 @@
+version: '3.8'
+
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: capx-mongodb-lite
+    restart: always
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin123
+      MONGO_INITDB_DATABASE: capx
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - capx-network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+
+  # Backend Flask API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: capx-backend-lite
+    restart: always
+    ports:
+      - "5000:5000"
+    environment:
+      MONGO_URI: mongodb://admin:admin123@mongodb:27017/capx?authSource=admin
+      FLASK_ENV: development
+      FLASK_DEBUG: "True"
+      SECRET_KEY: dev-secret-key-change-in-production
+      CORS_ORIGINS: http://localhost:3000,http://localhost:5173
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - mongodb
+    networks:
+      - capx-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+
+  # Frontend React Application
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: capx-frontend-lite
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      VITE_API_URL: http://localhost:5000/api
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - capx-network
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.25'
+
+  # Redis for Caching
+  redis:
+    image: redis:7.2-alpine
+    container_name: capx-redis-lite
+    restart: always
+    ports:
+      - "6379:6379"
+    networks:
+      - capx-network
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: '0.1'
+  # Prometheus (Optional - comment out if too resource intensive)
+  # prometheus:
+  #   image: prom/prometheus:v2.48.0
+  #   container_name: capx-prometheus-lite
+  #   restart: always
+  #   ports:
+  #     - "9090:9090"
+  #   volumes:
+  #     - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+  #   networks:
+  #     - capx-network
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 256M
+  #         cpus: '0.25'
+
+networks:
+  capx-network:
+    driver: bridge
+    name: capx-network-lite
+
+volumes:
+  mongodb_data:
+    name: capx-mongodb-data-lite
