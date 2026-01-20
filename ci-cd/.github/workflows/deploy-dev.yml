@@ -1,0 +1,182 @@
+name: Deploy to Development
+
+on:
+  push:
+    branches: [ develop ]
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Deployment reason'
+        required: false
+        default: 'Manual deployment'
+
+env:
+  ENVIRONMENT: development
+  NAMESPACE: capx-dev
+
+jobs:
+  deploy-backend:
+    name: Deploy Backend to Dev
+    runs-on: ubuntu-latest
+    environment: development
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      
+      - name: Build and push backend image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: capx-backend
+          IMAGE_TAG: dev-${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./backend
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "IMAGE=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
+      
+      - name: Configure kubectl
+        uses: azure/k8s-set-context@v4
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBE_CONFIG_DEV }}
+      
+      - name: Deploy to Kubernetes
+        run: |
+          kubectl set image deployment/capx-backend \
+            capx-backend=${{ env.IMAGE }} \
+            -n ${{ env.NAMESPACE }}
+          kubectl rollout status deployment/capx-backend -n ${{ env.NAMESPACE }}
+      
+      - name: Verify deployment
+        run: |
+          kubectl get pods -n ${{ env.NAMESPACE }} -l app=capx-backend
+          kubectl get svc -n ${{ env.NAMESPACE }} -l app=capx-backend
+
+  deploy-frontend:
+    name: Deploy Frontend to Dev
+    runs-on: ubuntu-latest
+    environment: development
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: ./frontend
+        run: npm ci
+      
+      - name: Build frontend
+        working-directory: ./frontend
+        env:
+          VITE_API_URL: ${{ secrets.DEV_API_URL }}
+          VITE_ENV: development
+        run: npm run build
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      
+      - name: Build and push frontend image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: capx-frontend
+          IMAGE_TAG: dev-${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ./frontend
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "IMAGE=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_ENV
+      
+      - name: Configure kubectl
+        uses: azure/k8s-set-context@v4
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBE_CONFIG_DEV }}
+      
+      - name: Deploy to Kubernetes
+        run: |
+          kubectl set image deployment/capx-frontend \
+            capx-frontend=${{ env.IMAGE }} \
+            -n ${{ env.NAMESPACE }}
+          kubectl rollout status deployment/capx-frontend -n ${{ env.NAMESPACE }}
+      
+      - name: Verify deployment
+        run: |
+          kubectl get pods -n ${{ env.NAMESPACE }} -l app=capx-frontend
+          kubectl get svc -n ${{ env.NAMESPACE }} -l app=capx-frontend
+
+  smoke-tests:
+    name: Run Smoke Tests
+    runs-on: ubuntu-latest
+    needs: [deploy-backend, deploy-frontend]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Wait for deployment to stabilize
+        run: sleep 30
+      
+      - name: Health check - Backend
+        run: |
+          curl -f ${{ secrets.DEV_API_URL }}/health || exit 1
+      
+      - name: Health check - Frontend
+        run: |
+          curl -f ${{ secrets.DEV_FRONTEND_URL }} || exit 1
+      
+      - name: API smoke test
+        run: |
+          response=$(curl -s ${{ secrets.DEV_API_URL }})
+          echo "API Response: $response"
+
+  notify:
+    name: Send Notification
+    runs-on: ubuntu-latest
+    needs: [smoke-tests]
+    if: always()
+    
+    steps:
+      - name: Send Slack notification
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": "Development Deployment ${{ job.status }}",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Development Deployment*\nStatus: ${{ job.status }}\nCommit: ${{ github.sha }}\nAuthor: ${{ github.actor }}"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        continue-on-error: true

@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: capx-backend
+  namespace: capx-platform
+  labels:
+    app: capx-backend
+    tier: backend
+spec:
+  type: ClusterIP
+  selector:
+    app: capx-backend
+  ports:
+  - name: http
+    port: 5000
+    targetPort: 5000
+    protocol: TCP
+  sessionAffinity: None
